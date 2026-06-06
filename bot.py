@@ -133,8 +133,7 @@ def extract_tickers(text):
     # TW Tickers
     tw_matches = re.findall(r'[\(（](\d{4})[\)）]', text)
     for m in tw_matches:
-        if m in TW_STOCK_MAP:
-            tickers.add(m)
+        tickers.add(m)
             
     for name, code in TW_NAME_TO_CODE.items():
         if len(name) >= 2 and name in text:
