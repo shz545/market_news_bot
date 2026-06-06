@@ -290,10 +290,13 @@ def send_telegram(item):
     
     sent_emoji = '🟢 利多' if item['sentiment'] == 'bullish' else '🔴 利空' if item['sentiment'] == 'bearish' else '⚪ 中性'
     
-    translated_headline = ""
+    zh_title = f"<b>{item['headline']}</b>\n\n"
+    en_title = ""
     if is_english(item['headline']):
         zh = translate_to_zh(item['headline'])
-        if zh: translated_headline = f"📝 <i>{zh}</i>\n\n"
+        if zh: 
+            zh_title = f"<b>{zh}</b>\n\n"
+            en_title = f"📝 <i>{item['headline']}</i>\n\n"
         
     stock_links = []
     for t in item['tickers'][:4]:
@@ -308,13 +311,12 @@ def send_telegram(item):
     summary_str = f"{item['summary'][:200]}...\n" if item['summary'] else ""
     
     message = (
-        f"📡 <b>市場快訊 ({item['source']})</b>\n\n"
-        f"{sent_emoji}\n"
-        f"<b>{item['headline']}</b>\n\n"
-        f"{translated_headline}"
+        f"{sent_emoji} {zh_title}"
+        f"{en_title}"
         f"{summary_str}"
         f"{stock_str}"
-        f"{url_str}"
+        f"{url_str}\n\n"
+        f"📡 來源: {item['source']}"
     )
     
     try:
