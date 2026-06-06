@@ -1,10 +1,10 @@
 name: Market News Bot
 
 on:
-  schedule:
-    # Run every 5 minutes
-    - cron: '*/5 * * * *'
-  workflow_dispatch: # Allow manual trigger
+  # 既然已經用 cron-job.org 觸發，可以把這裡的自動執行關掉，避免同時跑發生衝突
+  # schedule:
+  #   - cron: '*/5 * * * *'
+  workflow_dispatch: # 保留手動觸發 (cron-job.org 也是用這個)
 
 jobs:
   run-bot:
