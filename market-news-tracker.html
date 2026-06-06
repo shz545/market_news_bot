@@ -1,0 +1,1796 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>📡 股市新聞追蹤器 | Market News Tracker</title>
+<meta name="description" content="即時追蹤全球股市新聞，自動判斷利多利空，推送 Telegram 通知">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600&family=Inter:wght@300;400;500;600;700&display=swap');
+
+  :root {
+    --bg: #0a0e1a;
+    --surface: #111827;
+    --surface2: #1a2235;
+    --surface3: #212b40;
+    --border: #1e2d45;
+    --border2: #2a3a55;
+    --accent: #00d4ff;
+    --accent2: #00ff9d;
+    --warn: #ff6b35;
+    --red: #ff4757;
+    --green: #2ed573;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --gold: #ffd700;
+    --purple: #a855f7;
+    --glass: rgba(17, 24, 39, 0.75);
+    --glass-border: rgba(255,255,255,0.06);
+    --shadow: 0 8px 32px rgba(0,0,0,0.4);
+    --radius: 16px;
+    --radius-sm: 10px;
+    --radius-xs: 6px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Noto Sans TC', 'Inter', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ===== ANIMATED BACKGROUND ===== */
+  body::before {
+    content: '';
+    position: fixed;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(ellipse at 20% 50%, rgba(0,212,255,0.04) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 20%, rgba(0,255,157,0.03) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 80%, rgba(168,85,247,0.03) 0%, transparent 50%);
+    animation: bgDrift 20s ease-in-out infinite;
+    z-index: 0;
+    pointer-events: none;
+  }
+  @keyframes bgDrift {
+    0%, 100% { transform: translate(0, 0) rotate(0deg); }
+    33% { transform: translate(2%, -1%) rotate(1deg); }
+    66% { transform: translate(-1%, 2%) rotate(-1deg); }
+  }
+
+  /* ===== SCROLLBAR ===== */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+  /* ===== LAYOUT ===== */
+  .app { position: relative; z-index: 1; max-width: 900px; margin: 0 auto; padding: 20px 16px 80px; }
+
+  /* ===== HEADER ===== */
+  .header {
+    text-align: center;
+    padding: 32px 0 24px;
+    position: relative;
+  }
+  .header h1 {
+    font-size: 26px;
+    font-weight: 900;
+    letter-spacing: 2px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2), var(--purple));
+    background-size: 200% 200%;
+    animation: gradientShift 4s ease-in-out infinite;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  @keyframes gradientShift {
+    0%, 100% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+  }
+  .header .subtitle {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 6px;
+    letter-spacing: 1px;
+  }
+  .header::after {
+    content: '';
+    display: block;
+    width: 80px;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    margin: 14px auto 0;
+    border-radius: 2px;
+  }
+  .header-controls {
+    position: absolute;
+    right: 0;
+    top: 36px;
+    display: flex;
+    gap: 8px;
+  }
+  .icon-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+  }
+  .icon-btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.08); }
+  .icon-btn.active { border-color: var(--accent); color: var(--accent); }
+
+  /* ===== STATUS BAR ===== */
+  .status-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 8px 0 20px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 4px;
+  }
+  .status-dot.live { background: var(--green); animation: pulse 2s infinite; }
+  .status-dot.off { background: var(--red); }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(46,213,115,0.4); }
+    50% { opacity: 0.8; box-shadow: 0 0 0 6px rgba(46,213,115,0); }
+  }
+
+  /* ===== SENTIMENT DASHBOARD ===== */
+  .sentiment-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .sentiment-card {
+    background: var(--glass);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius);
+    padding: 18px 14px;
+    text-align: center;
+    transition: all 0.3s;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+  }
+  .sentiment-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    border-radius: var(--radius) var(--radius) 0 0;
+  }
+  .sentiment-card.bullish::before { background: linear-gradient(90deg, var(--green), var(--accent2)); }
+  .sentiment-card.bearish::before { background: linear-gradient(90deg, var(--red), var(--warn)); }
+  .sentiment-card.neutral::before { background: linear-gradient(90deg, var(--muted), var(--border2)); }
+  .sentiment-card:hover { transform: translateY(-2px); border-color: var(--border2); }
+  .sentiment-card.active { border-color: var(--accent); }
+  .sentiment-emoji { font-size: 22px; margin-bottom: 6px; }
+  .sentiment-count {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .sentiment-card.bullish .sentiment-count { color: var(--green); }
+  .sentiment-card.bearish .sentiment-count { color: var(--red); }
+  .sentiment-card.neutral .sentiment-count { color: var(--muted); }
+  .sentiment-label { font-size: 11px; color: var(--muted); margin-top: 4px; letter-spacing: 1px; }
+
+  /* ===== FILTER BAR ===== */
+  .filter-bar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .filter-btn {
+    padding: 8px 16px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 12px;
+    font-family: 'Noto Sans TC', sans-serif;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .filter-btn:hover { border-color: var(--accent); color: var(--text); }
+  .filter-btn.active {
+    background: linear-gradient(135deg, rgba(0,212,255,0.15), rgba(0,255,157,0.10));
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .search-box {
+    flex: 1;
+    min-width: 150px;
+    padding: 8px 14px 8px 36px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 13px;
+    font-family: 'Noto Sans TC', sans-serif;
+    transition: border-color 0.2s;
+    outline: none;
+  }
+  .search-box:focus { border-color: var(--accent); }
+  .search-box::placeholder { color: var(--muted); }
+  .search-wrap {
+    flex: 1;
+    min-width: 150px;
+    position: relative;
+  }
+  .search-wrap::before {
+    content: '🔍';
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 13px;
+    pointer-events: none;
+  }
+
+  /* ===== NEWS CARDS ===== */
+  .news-feed { display: flex; flex-direction: column; gap: 14px; }
+
+  .news-card {
+    background: var(--glass);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius);
+    padding: 20px;
+    transition: all 0.3s;
+    animation: slideIn 0.4s ease-out;
+    position: relative;
+    overflow: hidden;
+  }
+  .news-card:hover { border-color: var(--border2); transform: translateY(-1px); box-shadow: var(--shadow); }
+  .news-card.new-item { animation: highlightNew 2s ease-out; }
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes highlightNew {
+    0% { border-color: var(--accent); box-shadow: 0 0 20px rgba(0,212,255,0.2); }
+    100% { border-color: var(--glass-border); box-shadow: none; }
+  }
+
+  .news-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 10px;
+    gap: 10px;
+  }
+  .sentiment-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .sentiment-badge.bullish {
+    background: rgba(46,213,115,0.12);
+    color: var(--green);
+    border: 1px solid rgba(46,213,115,0.25);
+  }
+  .sentiment-badge.bearish {
+    background: rgba(255,71,87,0.12);
+    color: var(--red);
+    border: 1px solid rgba(255,71,87,0.25);
+  }
+  .sentiment-badge.neutral {
+    background: rgba(100,116,139,0.12);
+    color: var(--muted);
+    border: 1px solid rgba(100,116,139,0.25);
+  }
+  .news-source {
+    font-size: 11px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .news-source .category-tag {
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(168,85,247,0.12);
+    color: var(--purple);
+    font-size: 10px;
+    border: 1px solid rgba(168,85,247,0.2);
+  }
+
+  .news-headline {
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.5;
+    margin-bottom: 8px;
+    color: var(--text);
+  }
+  .news-summary {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.6;
+    margin-bottom: 14px;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .news-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .ticker-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .ticker-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.2s;
+    cursor: pointer;
+  }
+  .ticker-badge.us {
+    background: rgba(0,212,255,0.1);
+    color: var(--accent);
+    border: 1px solid rgba(0,212,255,0.2);
+  }
+  .ticker-badge.us:hover { background: rgba(0,212,255,0.2); border-color: var(--accent); }
+  .ticker-badge.tw {
+    background: rgba(255,215,0,0.1);
+    color: var(--gold);
+    border: 1px solid rgba(255,215,0,0.2);
+  }
+  .ticker-badge.tw:hover { background: rgba(255,215,0,0.2); border-color: var(--gold); }
+
+  .news-actions { display: flex; gap: 8px; align-items: center; }
+  .news-time { font-size: 11px; color: var(--muted); }
+  .news-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 12px;
+    border-radius: 6px;
+    background: var(--surface2);
+    color: var(--accent);
+    font-size: 11px;
+    text-decoration: none;
+    border: 1px solid var(--border);
+    transition: all 0.2s;
+  }
+  .news-link:hover { border-color: var(--accent); background: rgba(0,212,255,0.1); }
+
+  /* ===== SETUP / SETTINGS MODAL ===== */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(8px);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    animation: fadeIn 0.2s;
+  }
+  .modal-overlay.hidden { display: none; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    width: 100%;
+    max-width: 520px;
+    max-height: 85vh;
+    overflow-y: auto;
+    padding: 28px 24px;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+    animation: modalSlide 0.3s ease-out;
+  }
+  @keyframes modalSlide {
+    from { opacity: 0; transform: translateY(20px) scale(0.97); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .modal h2 {
+    font-size: 20px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .modal .modal-desc { font-size: 12px; color: var(--muted); margin-bottom: 24px; }
+
+  .setting-section {
+    margin-bottom: 24px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .setting-section:last-of-type { border-bottom: none; margin-bottom: 16px; }
+  .setting-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .setting-row { margin-bottom: 14px; }
+  .setting-row label {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+  .setting-row input[type="text"],
+  .setting-row input[type="password"],
+  .setting-row input[type="number"] {
+    width: 100%;
+    padding: 10px 14px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    transition: border-color 0.2s;
+    outline: none;
+  }
+  .setting-row input:focus { border-color: var(--accent); }
+  .setting-hint {
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 4px;
+    line-height: 1.5;
+  }
+  .setting-hint a { color: var(--accent); text-decoration: none; }
+  .setting-hint a:hover { text-decoration: underline; }
+
+  .modal-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 8px;
+  }
+  .btn-primary {
+    flex: 1;
+    padding: 14px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border: none;
+    border-radius: 12px;
+    color: #0a0e1a;
+    font-size: 14px;
+    font-weight: 700;
+    font-family: 'Noto Sans TC', sans-serif;
+    cursor: pointer;
+    letter-spacing: 1px;
+    transition: opacity 0.2s;
+  }
+  .btn-primary:hover { opacity: 0.9; }
+  .btn-secondary {
+    padding: 14px 20px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 500;
+    font-family: 'Noto Sans TC', sans-serif;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-secondary:hover { border-color: var(--accent); color: var(--text); }
+
+  /* ===== TOAST NOTIFICATIONS ===== */
+  .toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .toast {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 18px;
+    font-size: 13px;
+    color: var(--text);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    animation: toastIn 0.3s ease-out;
+    max-width: 360px;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .toast.success { border-left: 3px solid var(--green); }
+  .toast.error { border-left: 3px solid var(--red); }
+  .toast.info { border-left: 3px solid var(--accent); }
+  @keyframes toastIn {
+    from { opacity: 0; transform: translateX(30px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  /* ===== SKELETON LOADING ===== */
+  .skeleton-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 14px;
+  }
+  .skeleton-line {
+    height: 14px;
+    background: linear-gradient(90deg, var(--surface2), var(--surface3), var(--surface2));
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: 6px;
+    margin-bottom: 10px;
+  }
+  .skeleton-line.short { width: 40%; }
+  .skeleton-line.medium { width: 70%; }
+  .skeleton-line.long { width: 90%; }
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+
+  /* ===== EMPTY STATE ===== */
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--muted);
+  }
+  .empty-state .emoji { font-size: 48px; margin-bottom: 16px; }
+  .empty-state p { font-size: 14px; line-height: 1.8; }
+
+  /* ===== RESPONSIVE ===== */
+  @media (max-width: 640px) {
+    .header h1 { font-size: 20px; }
+    .header-controls { position: static; justify-content: center; margin-top: 12px; }
+    .sentiment-grid { grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    .sentiment-card { padding: 14px 8px; }
+    .sentiment-count { font-size: 22px; }
+    .filter-bar { flex-wrap: wrap; }
+    .news-card { padding: 16px; }
+    .news-footer { flex-direction: column; align-items: flex-start; }
+  }
+
+  /* ===== TELEGRAM STATUS ===== */
+  .tg-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 10px;
+  }
+  .tg-status.on { background: rgba(46,213,115,0.12); color: var(--green); }
+  .tg-status.off { background: rgba(100,116,139,0.12); color: var(--muted); }
+
+  /* ===== REFRESH PROGRESS ===== */
+  .refresh-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    z-index: 999;
+    transition: width 0.3s linear;
+    border-radius: 0 2px 2px 0;
+  }
+
+  .importance-high .news-headline::before {
+    content: '⚡ ';
+  }
+
+  /* ===== TRANSLATED HEADLINE ===== */
+  .news-headline-zh {
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.5;
+    margin-bottom: 8px;
+    color: var(--accent);
+    opacity: 0.85;
+    padding-left: 12px;
+    border-left: 2px solid var(--accent);
+    transition: opacity 0.3s;
+  }
+  .news-headline-zh.loading {
+    color: var(--muted);
+    font-style: italic;
+    animation: shimmer 1.5s infinite;
+    background: linear-gradient(90deg, var(--muted), var(--surface3), var(--muted));
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+</style>
+</head>
+<body>
+
+<div class="refresh-bar" id="refreshBar" style="width:0%"></div>
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- ===== SETTINGS MODAL ===== -->
+<div class="modal-overlay hidden" id="settingsModal">
+  <div class="modal">
+    <h2>⚙️ 設定</h2>
+    <p class="modal-desc">設定 API Key 與通知方式。所有資料僅存於你的瀏覽器。</p>
+
+    <div class="setting-section">
+      <div class="setting-title">🔑 API Keys（必填至少一個）</div>
+      <div class="setting-row">
+        <label>Finnhub API Key</label>
+        <input type="password" id="cfgFinnhub" placeholder="輸入你的 Finnhub API Key">
+        <p class="setting-hint">免費註冊：<a href="https://finnhub.io/register" target="_blank">finnhub.io/register</a>（60次/分鐘）</p>
+      </div>
+      <div class="setting-row">
+        <label>Marketaux API Token（選填，有情緒分數）</label>
+        <input type="password" id="cfgMarketaux" placeholder="輸入你的 Marketaux API Token">
+        <p class="setting-hint">免費註冊：<a href="https://www.marketaux.com/register" target="_blank">marketaux.com/register</a>（100次/天）</p>
+      </div>
+    </div>
+
+    <div class="setting-section">
+      <div class="setting-title">🤖 Telegram 推送（選填）</div>
+      <div class="setting-row">
+        <label>Bot Token</label>
+        <input type="password" id="cfgTgToken" placeholder="123456:ABC-DEF...">
+        <p class="setting-hint">在 Telegram 搜尋 <a href="https://t.me/BotFather" target="_blank">@BotFather</a>，輸入 /newbot 建立機器人取得 Token</p>
+      </div>
+      <div class="setting-row">
+        <label>Chat ID</label>
+        <input type="text" id="cfgTgChatId" placeholder="你的 Chat ID">
+        <p class="setting-hint">對你的 Bot 發送任意訊息，然後訪問 <code style="color:var(--accent);font-size:10px">https://api.telegram.org/bot{TOKEN}/getUpdates</code> 取得 chat id</p>
+      </div>
+      <div class="setting-row">
+        <label>Telegram 測試</label>
+        <button class="btn-secondary" onclick="testTelegram()" style="font-size:12px;padding:8px 16px;width:100%">📨 發送測試訊息</button>
+      </div>
+    </div>
+
+    <div class="setting-section">
+      <div class="setting-title">⏱️ 偏好設定</div>
+      <div class="setting-row">
+        <label>自動刷新間隔（秒）</label>
+        <input type="number" id="cfgInterval" placeholder="120" value="120">
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeSettings()">取消</button>
+      <button class="btn-primary" onclick="saveSettings()">💾 儲存設定</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MAIN APP ===== -->
+<div class="app">
+  <div class="header">
+    <h1>📡 股市新聞追蹤器</h1>
+    <p class="subtitle">即時追蹤市場脈動 · 美股 + 台股 · 自動判斷利多利空</p>
+    <div class="header-controls">
+      <button class="icon-btn" onclick="manualRefresh()" title="立即刷新" id="refreshBtn">🔄</button>
+      <button class="icon-btn" onclick="openSettings()" title="設定" id="settingsBtn">⚙️</button>
+    </div>
+  </div>
+
+  <div class="status-bar" id="statusBar">
+    <span><span class="status-dot off" id="statusDot"></span> <span id="statusText">尚未連線</span></span>
+    <span id="lastRefresh">—</span>
+    <span class="tg-status off" id="tgStatus">🤖 TG 未連接</span>
+  </div>
+
+  <!-- Sentiment Dashboard -->
+  <div class="sentiment-grid">
+    <div class="sentiment-card bullish" onclick="filterBySentiment('bullish')">
+      <div class="sentiment-emoji">🟢</div>
+      <div class="sentiment-count" id="bullCount">0</div>
+      <div class="sentiment-label">利多</div>
+    </div>
+    <div class="sentiment-card bearish" onclick="filterBySentiment('bearish')">
+      <div class="sentiment-emoji">🔴</div>
+      <div class="sentiment-count" id="bearCount">0</div>
+      <div class="sentiment-label">利空</div>
+    </div>
+    <div class="sentiment-card neutral" onclick="filterBySentiment('neutral')">
+      <div class="sentiment-emoji">⚪</div>
+      <div class="sentiment-count" id="neutralCount">0</div>
+      <div class="sentiment-label">中性</div>
+    </div>
+  </div>
+
+  <!-- Filter Bar -->
+  <div class="filter-bar">
+    <button class="filter-btn active" onclick="setFilter('all')" id="f-all">全部</button>
+    <button class="filter-btn" onclick="setFilter('bullish')" id="f-bullish">🟢 利多</button>
+    <button class="filter-btn" onclick="setFilter('bearish')" id="f-bearish">🔴 利空</button>
+    <button class="filter-btn" onclick="setFilter('important')" id="f-important">⚡ 重要</button>
+    <button class="filter-btn" onclick="setFilter('tw')" id="f-tw">🇹🇼 台股</button>
+    <button class="filter-btn" onclick="setFilter('intl')" id="f-intl">🌍 國際</button>
+    <div class="search-wrap">
+      <input type="text" class="search-box" id="searchInput" placeholder="搜尋新聞或股票代碼..." oninput="applyFilters()">
+    </div>
+  </div>
+
+  <!-- News Feed -->
+  <div class="news-feed" id="newsFeed">
+    <div class="empty-state" id="emptySetup">
+      <div class="emoji">🔑</div>
+      <p>請先設定 API Key 才能開始追蹤新聞<br>
+      點擊右上角 ⚙️ 進行設定</p>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// CONFIG & STATE
+// ============================================================
+const CONFIG_KEY = 'mnt_config';
+let config = {
+  finnhubKey: '',
+  marketauxKey: '',
+  tgBotToken: '',
+  tgChatId: '',
+  refreshInterval: 120,
+};
+
+let state = {
+  allNews: [],
+  currentFilter: 'all',
+  searchQuery: '',
+  sentNoteIds: new Set(),   // avoid duplicate notifications
+  sentTgIds: new Set(),     // avoid duplicate telegram messages
+  refreshTimer: null,
+  progressTimer: null,
+  isLoading: false,
+  lastRefreshTime: null,
+};
+
+// ============================================================
+// TRANSLATION ENGINE (MyMemory API - free, no key needed)
+// ============================================================
+const TRANS_CACHE_KEY = 'mnt_translations';
+let transCache = {};
+
+function loadTransCache() {
+  try {
+    const saved = localStorage.getItem(TRANS_CACHE_KEY);
+    if (saved) transCache = JSON.parse(saved);
+    // Keep cache under 500 entries
+    const keys = Object.keys(transCache);
+    if (keys.length > 500) {
+      const toRemove = keys.slice(0, keys.length - 400);
+      toRemove.forEach(k => delete transCache[k]);
+    }
+  } catch(e) { transCache = {}; }
+}
+
+function saveTransCache() {
+  try { localStorage.setItem(TRANS_CACHE_KEY, JSON.stringify(transCache)); } catch(e) {}
+}
+
+function isEnglish(text) {
+  const asciiChars = text.replace(/[^a-zA-Z]/g, '').length;
+  return asciiChars / Math.max(text.length, 1) > 0.5;
+}
+
+async function translateText(text) {
+  if (!text || !isEnglish(text)) return text;
+  const cacheKey = text.substring(0, 120);
+  if (transCache[cacheKey]) return transCache[cacheKey];
+
+  try {
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-TW&dt=t&q=${encodeURIComponent(text)}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const json = await res.json();
+    
+    if (json && json[0] && json[0][0] && json[0][0][0]) {
+      let translated = json[0].map(item => item[0]).join('');
+      if (translated) {
+        transCache[cacheKey] = translated;
+        saveTransCache();
+        return translated;
+      }
+    }
+    return null;
+  } catch(e) {
+    console.error('Translation error:', e);
+    return null;
+  }
+}
+
+// Translate all visible headlines with rate limiting
+let transQueue = [];
+let transRunning = false;
+
+async function translateAllVisible() {
+  const cards = document.querySelectorAll('.news-card');
+  transQueue = [];
+  cards.forEach(card => {
+    const id = card.getAttribute('data-id');
+    const zhEl = card.querySelector('.news-headline-zh');
+    if (zhEl && zhEl.classList.contains('loading')) {
+      const item = state.allNews.find(n => n.id === id);
+      if (item) transQueue.push({ item, el: zhEl });
+    }
+  });
+
+  if (transRunning || transQueue.length === 0) return;
+  transRunning = true;
+
+  for (const { item, el } of transQueue) {
+    const translated = await translateText(item.headline);
+    if (translated && el) {
+      el.textContent = '📝 ' + translated;
+      el.classList.remove('loading');
+    } else if (el) {
+      // If translation failed or not English, hide the element
+      el.style.display = 'none';
+    }
+    // Rate limit: ~1 request per 300ms to stay well within MyMemory limits
+    await new Promise(r => setTimeout(r, 300));
+  }
+  transRunning = false;
+}
+
+function loadConfig() {
+  try {
+    const saved = localStorage.getItem(CONFIG_KEY);
+    if (saved) Object.assign(config, JSON.parse(saved));
+  } catch(e) {}
+}
+function saveConfig() {
+  localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+}
+function hasAnyKey() {
+  return !!(config.finnhubKey || config.marketauxKey);
+}
+
+// ============================================================
+// SENTIMENT ANALYSIS ENGINE
+// ============================================================
+const BULLISH_EN = [
+  'surge','surges','surging','surged','rally','rallies','rallying',
+  'soar','soars','soaring','jump','jumps','jumping','rise','rises','rising',
+  'gain','gains','climb','climbs','climbing','beat','beats','beating',
+  'exceed','exceeds','outperform','outperforms','upgrade','upgrades','upgraded',
+  'buy','bullish','optimistic','growth','expansion','record high','all-time high',
+  'breakthrough','stimulus','rate cut','rate cuts','dovish','recovery','rebound',
+  'rebounds','strong','robust','positive','profit','revenue beat','earnings beat',
+  'guidance raise','dividend increase','buyback','share repurchase','partnership',
+  'deal','acquisition','innovation','approval','approved','boom','booming',
+  'momentum','upbeat','upside','accelerate','accelerating','exceeding expectations',
+  'beat expectations','better than expected','blockbuster','blowout','tailwind',
+];
+const BEARISH_EN = [
+  'crash','crashes','crashing','plunge','plunges','plunging','plummets',
+  'tumble','tumbles','tumbling','drop','drops','dropping','fall','falls','falling',
+  'decline','declines','declining','sink','sinks','sinking','miss','misses',
+  'disappoint','disappoints','underperform','underperforms','downgrade','downgrades',
+  'sell','bearish','pessimistic','contraction','recession','slowdown',
+  'layoff','layoffs','default','defaults','bankruptcy','debt crisis',
+  'rate hike','rate hikes','hawkish','sanction','sanctions','tariff','tariffs',
+  'war','conflict','tension','tensions','lawsuit','fraud','scandal',
+  'investigation','recall','shutdown','inflation','stagflation',
+  'guidance cut','earnings miss','revenue miss','dividend cut','warning',
+  'collapse','crisis','fear','fears','panic','selloff','sell-off','downturn',
+  'headwind','worse than expected','miss expectations','below expectations',
+  'geopolitical risk','escalation','escalating','volatility','uncertain','uncertainty',
+];
+const BULLISH_ZH = [
+  '上漲','大漲','飆升','飆漲','創新高','突破','利多','看漲','看多',
+  '降息','刺激','復甦','反彈','成長','營收超預期','獲利增長','買進',
+  '加碼','增持','利好','紅利','配息增加','回購','合作','併購',
+  '突破性','核准','激勵','走強','強勁','樂觀','動能','翻倍',
+  '超預期','優於預期','牛市','多頭','噴出','急漲','漲停',
+  '放量上漲','資金流入','外資買超','投信買超','法人買超',
+];
+const BEARISH_ZH = [
+  '下跌','大跌','暴跌','崩盤','利空','看跌','看空','升息',
+  '制裁','關稅','戰爭','衝突','衰退','緊縮','裁員','違約',
+  '破產','債務危機','通膨','停滯性通膨','營收不如預期',
+  '獲利衰退','減持','賣出','訴訟','醜聞','調查','召回',
+  '停工','下修','虧損','警告','走弱','疲軟','悲觀','重挫',
+  '恐慌','拋售','跌停','放量下跌','資金外流','外資賣超',
+  '空頭','熊市','地緣政治','風險','不確定性','惡化',
+];
+
+function analyzeSentiment(text, apiSentiment) {
+  // Layer 1: Use API-provided sentiment if available
+  if (apiSentiment !== undefined && apiSentiment !== null) {
+    if (apiSentiment > 0.15) return { sentiment: 'bullish', score: apiSentiment, confidence: 'api' };
+    if (apiSentiment < -0.15) return { sentiment: 'bearish', score: apiSentiment, confidence: 'api' };
+    return { sentiment: 'neutral', score: apiSentiment, confidence: 'api' };
+  }
+
+  // Layer 2: Keyword-based analysis
+  const lower = text.toLowerCase();
+  let bullScore = 0, bearScore = 0;
+
+  for (const kw of BULLISH_EN) { if (lower.includes(kw)) bullScore += 1; }
+  for (const kw of BEARISH_EN) { if (lower.includes(kw)) bearScore += 1; }
+  for (const kw of BULLISH_ZH) { if (text.includes(kw)) bullScore += 1.5; }
+  for (const kw of BEARISH_ZH) { if (text.includes(kw)) bearScore += 1.5; }
+
+  const total = bullScore + bearScore;
+  if (total === 0) return { sentiment: 'neutral', score: 0, confidence: 'none' };
+
+  const netScore = (bullScore - bearScore) / Math.max(total, 1);
+  if (netScore > 0.2) return { sentiment: 'bullish', score: netScore, confidence: 'keyword' };
+  if (netScore < -0.2) return { sentiment: 'bearish', score: netScore, confidence: 'keyword' };
+  return { sentiment: 'neutral', score: netScore, confidence: 'keyword' };
+}
+
+function isImportant(item) {
+  const abs = Math.abs(item.sentimentScore || 0);
+  if (abs > 0.5) return true;
+  const text = (item.headline + ' ' + (item.summary || '')).toLowerCase();
+  const urgentKw = ['breaking','urgent','crash','surge','plunge','暴跌','飆升','崩盤','重大','緊急','突發'];
+  return urgentKw.some(kw => text.includes(kw));
+}
+
+// ============================================================
+// TICKER EXTRACTION & LINKS
+// ============================================================
+const TW_STOCK_MAP = {
+  // 半導體
+  '2330': '台積電', '2303': '聯電', '2454': '聯發科', '3443': '創意',
+  '5347': '世界', '6770': '力積電', '3661': '世芯-KY', '2379': '瑞昱',
+  '3034': '聯詠', '5274': '信驊', '6415': '矽力-KY', '8299': '群聯',
+  '2449': '京元電子', '6488': '環球晶', '3529': '力旺', '3711': '日月光投控',
+  // 電子代工/零組件
+  '2317': '鴻海', '2382': '廣達', '4938': '和碩', '2356': '英業達',
+  '3231': '緯創', '2308': '台達電', '2327': '國巨', '3037': '欣興',
+  '2357': '華碩', '2395': '研華', '6669': '緯穎', '3017': '奇鋐',
+  '2345': '智邦', '6285': '啟碁', '3005': '神基', '2360': '致茂',
+  // AI/雲端
+  '2376': '技嘉', '3023': '信邦', '6409': '旭隼', '2404': '漢唐',
+  // 金融
+  '2881': '富邦金', '2882': '國泰金', '2886': '兆豐金', '2891': '中信金',
+  '2884': '玉山金', '2880': '華南金', '2883': '開發金', '2887': '台新金',
+  '2890': '永豐金', '2892': '第一金', '5880': '合庫金',
+  // 傳產/鋼鐵/石化
+  '1301': '台塑', '1303': '南亞', '1326': '台化', '6505': '台塑化',
+  '2002': '中鋼', '1402': '遠東新', '2912': '統一超', '1216': '統一',
+  '2207': '和泰車', '9910': '豐泰', '9921': '巨大',
+  // 電信/公用
+  '2412': '中華電', '3045': '台灣大', '4904': '遠傳',
+  // 光電/面板
+  '3008': '大立光', '2474': '可成', '6526': '達發',
+  // 航運
+  '2603': '長榮', '2609': '陽明', '2615': '萬海',
+  // 其他熱門
+  '2618': '長榮航', '2610': '華航', '2542': '興富發',
+  '3592': '瑞鼎', '6547': '高端疫苗', '6803': '崧騰',
+};
+
+// Reverse map: name -> code (for extracting tickers from Chinese text)
+const TW_NAME_TO_CODE = {};
+for (const [code, name] of Object.entries(TW_STOCK_MAP)) {
+  TW_NAME_TO_CODE[name] = code;
+  // Also add short names (e.g., '台積電' from '台積電')
+  if (name.includes('-')) TW_NAME_TO_CODE[name.split('-')[0]] = code;
+}
+// Extra aliases
+Object.assign(TW_NAME_TO_CODE, {
+  '台積': '2330', 'TSMC': '2330', '護國神山': '2330',
+  '聯發': '2454', 'MTK': '2454',
+  '鴻海': '2317', 'Foxconn': '2317', '富士康': '2317',
+  '大立光': '3008',
+  '國巨': '2327',
+  '廣達': '2382',
+  '緯創': '3231',
+  '台達': '2308',
+  '長榮海': '2603', '長榮航空': '2618',
+  '陽明海運': '2609',
+  '華碩': '2357',
+});
+
+function getStockUrl(ticker) {
+  if (/^\d{4}$/.test(ticker) || ticker.endsWith('.TW') || ticker.endsWith('.TWO')) {
+    const code = ticker.replace(/\.(TW|TWO)$/, '');
+    return `https://tw.stock.yahoo.com/quote/${code}.TW`;
+  }
+  return `https://finance.yahoo.com/quote/${ticker}`;
+}
+
+function getTickerType(ticker) {
+  if (/^\d{4}$/.test(ticker) || ticker.endsWith('.TW') || ticker.endsWith('.TWO')) return 'tw';
+  return 'us';
+}
+
+// Extract Taiwan stock tickers from Chinese text
+function extractTWTickers(text) {
+  const tickers = new Set();
+
+  // Pattern 1: 台積電(2330) or 台積電（2330）or (2330)
+  const parenMatch = text.match(/[\(（](\d{4})[\)）]/g);
+  if (parenMatch) {
+    parenMatch.forEach(m => {
+      const code = m.replace(/[\(\)（）]/g, '');
+      if (TW_STOCK_MAP[code]) tickers.add(code);
+    });
+  }
+
+  // Pattern 2: match known company names in text
+  for (const [name, code] of Object.entries(TW_NAME_TO_CODE)) {
+    if (name.length >= 2 && text.includes(name)) {
+      tickers.add(code);
+    }
+  }
+
+  // Pattern 3: standalone 4-digit numbers that match known stocks
+  const numMatch = text.match(/\b(\d{4})\b/g);
+  if (numMatch) {
+    numMatch.forEach(m => { if (TW_STOCK_MAP[m]) tickers.add(m); });
+  }
+
+  return Array.from(tickers).slice(0, 8);
+}
+
+function extractTickers(text) {
+  const tickers = new Set();
+  // US tickers: 2-5 uppercase letters bounded by word boundaries
+  const usMatch = text.match(/\b[A-Z]{2,5}\b/g);
+  if (usMatch) {
+    const noise = new Set(['THE','AND','FOR','WITH','FROM','THIS','THAT','HAS','HAVE','HAD','WAS','ARE',
+      'NOT','BUT','ITS','ALL','NEW','HIS','HER','OUT','MAY','CAN','NOW','SAY','SAYS','CEO','CFO','IPO',
+      'GDP','FED','SEC','FDA','WHO','ETF','USD','EUR','JPY','API','AI','US','UK','EU','UN','IMF','ECB',
+      'BOJ','PMI','CPI','PPI','DOJ','EPS','PE','PEG','ROE','ROA','BPS','GOP','DNC','BY','IS','IN','ON',
+      'AT','TO','OF','OR','AN','AS','IF','DO','UP','SO','NO','BE','WE','IT','AM','HE','MY','BIG','TOP',
+      'VS','A','I','BEEN','ALSO','OVER','INTO','THAN','WILL','JUST','MORE','SOME','VERY','WHEN','WHAT',
+      'MOST','HIGH','LOW','SET','RSI','ATH','ATL','CPU','GPU','TPU','NPU','LLM','GPT','AWS','GCP',
+      'NYSE','NASDAQ','EBITDA','YOY','QOQ']);
+    usMatch.forEach(t => {
+      if (!noise.has(t)) tickers.add(t);
+    });
+  }
+  // Also try TW extraction
+  const twTickers = extractTWTickers(text);
+  twTickers.forEach(t => tickers.add(t));
+
+  return Array.from(tickers).slice(0, 8);
+}
+
+// ============================================================
+// API LAYER
+// ============================================================
+async function fetchFinnhubGeneral() {
+  if (!config.finnhubKey) return [];
+  try {
+    const cats = ['general', 'forex', 'merger'];
+    const results = [];
+    for (const cat of cats) {
+      const url = `https://finnhub.io/api/v1/news?category=${cat}&token=${config.finnhubKey}`;
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        data.slice(0, 15).forEach(item => {
+          const fullText = (item.headline || '') + ' ' + (item.summary || '');
+          const sa = analyzeSentiment(fullText, null);
+          const tickers = item.related ? item.related.split(',').map(s=>s.trim()).filter(Boolean) : extractTickers(fullText);
+          results.push({
+            id: 'fh-' + item.id,
+            source: item.source || 'Finnhub',
+            category: cat,
+            headline: item.headline || '',
+            summary: item.summary || '',
+            url: item.url || '',
+            image: item.image || '',
+            datetime: item.datetime ? new Date(item.datetime * 1000) : new Date(),
+            tickers: tickers,
+            sentiment: sa.sentiment,
+            sentimentScore: sa.score,
+            sentimentSource: sa.confidence,
+            important: false,
+          });
+        });
+      }
+    }
+    results.forEach(r => r.important = isImportant(r));
+    return results;
+  } catch(e) {
+    console.error('Finnhub error:', e);
+    return [];
+  }
+}
+
+async function fetchMarketaux() {
+  if (!config.marketauxKey) return [];
+  try {
+    const url = `https://api.marketaux.com/v1/news/all?api_token=${config.marketauxKey}&language=en&limit=30`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const json = await res.json();
+    if (!json.data) return [];
+
+    return json.data.map(item => {
+      const entities = item.entities || [];
+      const tickers = entities
+        .filter(e => e.symbol)
+        .map(e => e.symbol)
+        .slice(0, 6);
+
+      // Average entity sentiment
+      let apiSentiment = null;
+      const sentimentScores = entities.filter(e => e.sentiment_score != null).map(e => e.sentiment_score);
+      if (sentimentScores.length > 0) {
+        apiSentiment = sentimentScores.reduce((a,b) => a+b, 0) / sentimentScores.length;
+      }
+
+      const fullText = (item.title || '') + ' ' + (item.description || '');
+      const sa = analyzeSentiment(fullText, apiSentiment);
+
+      const newsItem = {
+        id: 'mx-' + (item.uuid || Math.random().toString(36).substr(2)),
+        source: item.source || 'Marketaux',
+        category: 'stock',
+        headline: item.title || '',
+        summary: item.description || '',
+        url: item.url || '',
+        image: item.image_url || '',
+        datetime: item.published_at ? new Date(item.published_at) : new Date(),
+        tickers: tickers.length > 0 ? tickers : extractTickers(fullText),
+        sentiment: sa.sentiment,
+        sentimentScore: sa.score,
+        sentimentSource: sa.confidence,
+        important: false,
+      };
+      newsItem.important = isImportant(newsItem);
+      return newsItem;
+    });
+  } catch(e) {
+    console.error('Marketaux error:', e);
+    return [];
+  }
+}
+
+// ============================================================
+// TAIWAN NEWS VIA RSS (free, no API key needed)
+// ============================================================
+function hashString(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const c = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + c;
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+function stripHtml(html) {
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  return tmp.textContent || tmp.innerText || '';
+}
+
+async function fetchTaiwanNews() {
+  const feeds = [
+    {
+      name: 'Google 台股新聞',
+      url: 'https://news.google.com/rss/search?q=台股+OR+台灣股市+OR+財報+OR+台積電+OR+半導體&hl=zh-TW&gl=TW&ceid=TW:zh-Hant',
+      category: '台股',
+    },
+    {
+      name: '經濟日報',
+      url: 'https://money.udn.com/rssfeed/news/1001/5590',
+      category: '台股',
+    },
+    {
+      name: 'Google 財經快訊',
+      url: 'https://news.google.com/rss/search?q=股市+OR+升息+OR+降息+OR+央行+OR+地緣政治+OR+關稅&hl=zh-TW&gl=TW&ceid=TW:zh-Hant',
+      category: '財經',
+    },
+  ];
+
+  const results = [];
+
+  for (const feed of feeds) {
+    try {
+      const rss2jsonUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feed.url)}`;
+      const res = await fetch(rss2jsonUrl);
+      if (!res.ok) continue;
+      const json = await res.json();
+      if (json.status !== 'ok' || !json.items) continue;
+
+      json.items.slice(0, 15).forEach(item => {
+        const title = item.title || '';
+        const desc = stripHtml(item.description || '').substring(0, 300);
+        const fullText = title + ' ' + desc;
+        const sa = analyzeSentiment(fullText, null);
+        const tickers = extractTWTickers(fullText);
+
+        results.push({
+          id: 'tw-' + hashString(item.link || title || Math.random().toString()),
+          source: feed.name,
+          category: feed.category,
+          headline: title,
+          summary: desc,
+          url: item.link || '',
+          image: item.thumbnail || '',
+          datetime: item.pubDate ? new Date(item.pubDate) : new Date(),
+          tickers: tickers,
+          sentiment: sa.sentiment,
+          sentimentScore: sa.score,
+          sentimentSource: sa.confidence,
+          important: false,
+        });
+      });
+    } catch(e) {
+      console.error('Taiwan RSS error for ' + feed.name + ':', e);
+    }
+  }
+
+  results.forEach(r => r.important = isImportant(r));
+  return results;
+}
+
+// ============================================================
+// NEWS AGGREGATION & DEDUP
+// ============================================================
+async function fetchAllNews() {
+  if (state.isLoading) return;
+  state.isLoading = true;
+  showLoading();
+
+  try {
+    const [fhNews, mxNews, twNews] = await Promise.all([
+      fetchFinnhubGeneral(),
+      fetchMarketaux(),
+      fetchTaiwanNews(),
+    ]);
+
+    const combined = [...twNews, ...fhNews, ...mxNews];
+
+    // Deduplicate by headline similarity
+    const seen = new Map();
+    const deduped = [];
+    for (const item of combined) {
+      const key = item.headline.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]/g, '').substring(0, 50);
+      if (!seen.has(key)) {
+        seen.set(key, true);
+        deduped.push(item);
+      }
+    }
+
+    // Sort by time (newest first)
+    deduped.sort((a, b) => b.datetime - a.datetime);
+
+    // Find truly new items for notifications
+    const oldIds = new Set(state.allNews.map(n => n.id));
+    const newItems = deduped.filter(n => !oldIds.has(n.id));
+
+    state.allNews = deduped;
+    state.lastRefreshTime = new Date();
+
+    renderNews();
+    updateSentimentDashboard();
+    updateStatusBar(true);
+
+    // Notifications for new important items
+    if (newItems.length > 0 && oldIds.size > 0) {
+      const importantNew = newItems.filter(n => n.important || n.sentiment !== 'neutral');
+      for (const item of importantNew.slice(0, 3)) {
+        sendDesktopNotification(item);
+        sendTelegramNotification(item);
+      }
+      if (newItems.length > 0) {
+        showToast(`🔔 取得 ${newItems.length} 則新消息`, 'info');
+      }
+    }
+
+    if (deduped.length === 0 && hasAnyKey()) {
+      showToast('⚠️ 未取得新聞，請確認 API Key 是否正確', 'error');
+    }
+
+  } catch(e) {
+    console.error('Fetch error:', e);
+    showToast('❌ 取得新聞失敗：' + e.message, 'error');
+    updateStatusBar(false);
+  } finally {
+    state.isLoading = false;
+  }
+}
+
+// ============================================================
+// RENDERING
+// ============================================================
+function renderNews() {
+  const feed = document.getElementById('newsFeed');
+  const filtered = getFilteredNews();
+
+  if (filtered.length === 0) {
+    if (!hasAnyKey()) {
+      feed.innerHTML = `
+        <div class="empty-state" id="emptySetup">
+          <div class="emoji">🔑</div>
+          <p>請先設定 API Key 才能開始追蹤新聞<br>
+          點擊右上角 ⚙️ 進行設定</p>
+        </div>`;
+    } else {
+      feed.innerHTML = `
+        <div class="empty-state">
+          <div class="emoji">📭</div>
+          <p>沒有符合條件的新聞<br>嘗試調整篩選條件</p>
+        </div>`;
+    }
+    return;
+  }
+
+  feed.innerHTML = filtered.map(item => {
+    const sentClass = item.sentiment;
+    const sentLabel = item.sentiment === 'bullish' ? '🟢 利多' :
+                      item.sentiment === 'bearish' ? '🔴 利空' : '⚪ 中性';
+
+    const tickerHtml = item.tickers.map(t => {
+      const type = getTickerType(t);
+      const url = getStockUrl(t);
+      const label = type === 'tw' ? (TW_STOCK_MAP[t.replace(/\.(TW|TWO)$/,'')] || t) + ` (${t})` : t;
+      const icon = type === 'tw' ? '🇹🇼' : '🇺🇸';
+      return `<a href="${url}" target="_blank" class="ticker-badge ${type}" title="在 Yahoo Finance 查看 ${t}">${icon} ${label}</a>`;
+    }).join('');
+
+    const timeStr = relativeTime(item.datetime);
+    const impClass = item.important ? 'importance-high' : '';
+
+    return `
+      <div class="news-card ${impClass}" data-id="${item.id}">
+        <div class="news-card-header">
+          <span class="sentiment-badge ${sentClass}">${sentLabel}</span>
+          <span class="news-source">
+            <span class="category-tag">${item.category}</span>
+            ${item.source}
+          </span>
+        </div>
+        <div class="news-headline">${escapeHtml(item.headline)}</div>
+        ${isEnglish(item.headline) ? (
+          transCache[item.headline.substring(0, 120)]
+            ? `<div class="news-headline-zh">📝 ${escapeHtml(transCache[item.headline.substring(0, 120)])}</div>`
+            : `<div class="news-headline-zh loading">翻譯中...</div>`
+        ) : ''}
+        ${item.summary ? `<div class="news-summary">${escapeHtml(item.summary)}</div>` : ''}
+        <div class="news-footer">
+          <div class="ticker-list">${tickerHtml || '<span style="font-size:11px;color:var(--muted)">無相關股票</span>'}</div>
+          <div class="news-actions">
+            <span class="news-time">🕐 ${timeStr}</span>
+            ${item.url ? `<a href="${item.url}" target="_blank" class="news-link">📰 原文</a>` : ''}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Trigger translation for English headlines
+  setTimeout(() => translateAllVisible(), 100);
+}
+
+function showLoading() {
+  const feed = document.getElementById('newsFeed');
+  if (state.allNews.length === 0) {
+    feed.innerHTML = Array(4).fill(0).map(() => `
+      <div class="skeleton-card">
+        <div class="skeleton-line short"></div>
+        <div class="skeleton-line long"></div>
+        <div class="skeleton-line medium"></div>
+        <div class="skeleton-line short"></div>
+      </div>
+    `).join('');
+  }
+}
+
+function updateSentimentDashboard() {
+  const bull = state.allNews.filter(n => n.sentiment === 'bullish').length;
+  const bear = state.allNews.filter(n => n.sentiment === 'bearish').length;
+  const neut = state.allNews.filter(n => n.sentiment === 'neutral').length;
+
+  animateCount('bullCount', bull);
+  animateCount('bearCount', bear);
+  animateCount('neutralCount', neut);
+}
+
+function animateCount(elId, target) {
+  const el = document.getElementById(elId);
+  const current = parseInt(el.textContent) || 0;
+  if (current === target) return;
+  const step = target > current ? 1 : -1;
+  let val = current;
+  const timer = setInterval(() => {
+    val += step;
+    el.textContent = val;
+    if (val === target) clearInterval(timer);
+  }, 40);
+}
+
+function updateStatusBar(connected) {
+  const dot = document.getElementById('statusDot');
+  const text = document.getElementById('statusText');
+  const refresh = document.getElementById('lastRefresh');
+
+  dot.className = 'status-dot ' + (connected ? 'live' : 'off');
+  text.textContent = connected ? '即時追蹤中' : '連線失敗';
+  if (state.lastRefreshTime) {
+    refresh.textContent = '上次更新：' + state.lastRefreshTime.toLocaleTimeString('zh-TW');
+  }
+
+  // Telegram status
+  const tgEl = document.getElementById('tgStatus');
+  if (config.tgBotToken && config.tgChatId) {
+    tgEl.className = 'tg-status on';
+    tgEl.textContent = '🤖 TG 已連接';
+  } else {
+    tgEl.className = 'tg-status off';
+    tgEl.textContent = '🤖 TG 未連接';
+  }
+}
+
+// ============================================================
+// FILTERS
+// ============================================================
+function getFilteredNews() {
+  let items = [...state.allNews];
+
+  if (state.currentFilter === 'bullish') items = items.filter(n => n.sentiment === 'bullish');
+  else if (state.currentFilter === 'bearish') items = items.filter(n => n.sentiment === 'bearish');
+  else if (state.currentFilter === 'important') items = items.filter(n => n.important);
+  else if (state.currentFilter === 'tw') {
+    items = items.filter(n => n.category === '台股' || n.tickers.some(t => getTickerType(t) === 'tw'));
+  }
+  else if (state.currentFilter === 'intl') {
+    items = items.filter(n => n.category !== '台股' && !n.tickers.some(t => getTickerType(t) === 'tw'));
+  }
+
+  if (state.searchQuery) {
+    const q = state.searchQuery.toLowerCase();
+    items = items.filter(n => {
+      const text = (n.headline + ' ' + n.summary + ' ' + n.tickers.join(' ')).toLowerCase();
+      return text.includes(q);
+    });
+  }
+
+  return items;
+}
+
+function setFilter(filter) {
+  state.currentFilter = filter;
+  document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+  document.getElementById('f-' + filter).classList.add('active');
+
+  // Also update sentiment card active states
+  document.querySelectorAll('.sentiment-card').forEach(c => c.classList.remove('active'));
+  if (filter === 'bullish') document.querySelector('.sentiment-card.bullish').classList.add('active');
+  if (filter === 'bearish') document.querySelector('.sentiment-card.bearish').classList.add('active');
+  if (filter === 'neutral') document.querySelector('.sentiment-card.neutral').classList.add('active');
+
+  renderNews();
+}
+
+function filterBySentiment(sentiment) {
+  if (state.currentFilter === sentiment) {
+    setFilter('all');
+  } else {
+    setFilter(sentiment);
+  }
+}
+
+function applyFilters() {
+  state.searchQuery = document.getElementById('searchInput').value;
+  renderNews();
+}
+
+// ============================================================
+// NOTIFICATIONS
+// ============================================================
+function sendDesktopNotification(item) {
+  if (state.sentNoteIds.has(item.id)) return;
+  state.sentNoteIds.add(item.id);
+
+  if (!('Notification' in window)) return;
+
+  if (Notification.permission === 'default') {
+    Notification.requestPermission();
+    return;
+  }
+  if (Notification.permission !== 'granted') return;
+
+  const sentLabel = item.sentiment === 'bullish' ? '🟢 利多' :
+                    item.sentiment === 'bearish' ? '🔴 利空' : '⚪ 中性';
+  const tickerStr = item.tickers.length > 0 ? ' | ' + item.tickers.slice(0, 3).join(', ') : '';
+
+  const n = new Notification(`${sentLabel}${tickerStr}`, {
+    body: item.headline,
+    icon: item.image || undefined,
+    tag: item.id,
+    requireInteraction: false,
+  });
+  n.onclick = () => {
+    if (item.url) window.open(item.url, '_blank');
+    n.close();
+  };
+  setTimeout(() => n.close(), 10000);
+}
+
+async function sendTelegramNotification(item) {
+  if (!config.tgBotToken || !config.tgChatId) return;
+  if (state.sentTgIds.has(item.id)) return;
+  state.sentTgIds.add(item.id);
+
+  // Only send significant news
+  if (item.sentiment === 'neutral' && !item.important) return;
+
+  const sentEmoji = item.sentiment === 'bullish' ? '🟢 利多' :
+                    item.sentiment === 'bearish' ? '🔴 利空' : '⚪ 中性';
+  
+  let translatedHeadline = '';
+  if (isEnglish(item.headline)) {
+    const zh = await translateText(item.headline);
+    if (zh) translatedHeadline = `📝 <i>${escapeHtml(zh)}</i>\n\n`;
+  }
+
+  const tickerStr = item.tickers.length > 0 ? '\n📊 相關股票：' + item.tickers.join(', ') : '';
+  const urlStr = item.url ? `\n📰 新聞連結：${item.url}` : '';
+
+  const stockLinks = item.tickers.slice(0, 4).map(t => {
+    const url = getStockUrl(t);
+    const type = getTickerType(t);
+    const label = type === 'tw' ? (TW_STOCK_MAP[t] || t) : t;
+    return `  • <a href="${url}">${label} (${t})</a>`;
+  }).join('\n');
+
+  const message = `📡 <b>市場快訊</b>\n\n` +
+    `${sentEmoji}\n` +
+    `<b>${escapeHtml(item.headline)}</b>\n\n` +
+    translatedHeadline +
+    (item.summary ? `${escapeHtml(item.summary).substring(0, 200)}...\n` : '') +
+    (stockLinks ? `\n📊 相關股票：\n${stockLinks}\n` : '') +
+    urlStr +
+    `\n\n🕐 ${item.datetime.toLocaleString('zh-TW')}`;
+
+  try {
+    await fetch(`https://api.telegram.org/bot${config.tgBotToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: config.tgChatId,
+        text: message,
+        parse_mode: 'HTML',
+        disable_web_page_preview: false,
+      }),
+    });
+  } catch(e) {
+    console.error('Telegram send error:', e);
+  }
+}
+
+async function testTelegram() {
+  const token = document.getElementById('cfgTgToken').value;
+  const chatId = document.getElementById('cfgTgChatId').value;
+  if (!token || !chatId) {
+    showToast('❌ 請先填入 Bot Token 和 Chat ID', 'error');
+    return;
+  }
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: '✅ 📡 股市新聞追蹤器連接成功！\n\n當有重要市場消息（利多/利空）時，會自動推送到這裡。',
+        parse_mode: 'HTML',
+      }),
+    });
+    const json = await res.json();
+    if (json.ok) {
+      showToast('✅ Telegram 測試訊息發送成功！', 'success');
+    } else {
+      showToast('❌ 發送失敗：' + (json.description || '未知錯誤'), 'error');
+    }
+  } catch(e) {
+    showToast('❌ 連接失敗：' + e.message, 'error');
+  }
+}
+
+// ============================================================
+// AUTO-REFRESH
+// ============================================================
+function startAutoRefresh() {
+  stopAutoRefresh();
+  const interval = (config.refreshInterval || 120) * 1000;
+  state.refreshTimer = setInterval(() => {
+    fetchAllNews();
+  }, interval);
+
+  // Progress bar animation
+  startProgressBar(interval);
+}
+
+function stopAutoRefresh() {
+  if (state.refreshTimer) clearInterval(state.refreshTimer);
+  if (state.progressTimer) clearInterval(state.progressTimer);
+}
+
+function startProgressBar(intervalMs) {
+  if (state.progressTimer) clearInterval(state.progressTimer);
+  const bar = document.getElementById('refreshBar');
+  let elapsed = 0;
+  const step = 500; // update every 500ms
+  bar.style.width = '0%';
+
+  state.progressTimer = setInterval(() => {
+    elapsed += step;
+    const pct = Math.min((elapsed / intervalMs) * 100, 100);
+    bar.style.width = pct + '%';
+    if (pct >= 100) {
+      elapsed = 0;
+      bar.style.width = '0%';
+    }
+  }, step);
+}
+
+function manualRefresh() {
+  const btn = document.getElementById('refreshBtn');
+  btn.style.transform = 'rotate(360deg)';
+  btn.style.transition = 'transform 0.5s';
+  setTimeout(() => { btn.style.transform = ''; }, 500);
+
+  fetchAllNews();
+  startAutoRefresh(); // reset timer
+}
+
+// ============================================================
+// SETTINGS
+// ============================================================
+function openSettings() {
+  document.getElementById('cfgFinnhub').value = config.finnhubKey;
+  document.getElementById('cfgMarketaux').value = config.marketauxKey;
+  document.getElementById('cfgTgToken').value = config.tgBotToken;
+  document.getElementById('cfgTgChatId').value = config.tgChatId;
+  document.getElementById('cfgInterval').value = config.refreshInterval;
+  document.getElementById('settingsModal').classList.remove('hidden');
+}
+
+function closeSettings() {
+  document.getElementById('settingsModal').classList.add('hidden');
+}
+
+function saveSettings() {
+  config.finnhubKey = document.getElementById('cfgFinnhub').value.trim();
+  config.marketauxKey = document.getElementById('cfgMarketaux').value.trim();
+  config.tgBotToken = document.getElementById('cfgTgToken').value.trim();
+  config.tgChatId = document.getElementById('cfgTgChatId').value.trim();
+  config.refreshInterval = parseInt(document.getElementById('cfgInterval').value) || 120;
+
+  saveConfig();
+  closeSettings();
+  showToast('✅ 設定已儲存', 'success');
+
+  updateStatusBar(false);
+
+  if (hasAnyKey()) {
+    fetchAllNews();
+    startAutoRefresh();
+    // Request notification permission
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }
+}
+
+// ============================================================
+// UTILITY
+// ============================================================
+function relativeTime(date) {
+  const now = new Date();
+  const diff = Math.floor((now - date) / 1000);
+  if (diff < 60) return '剛剛';
+  if (diff < 3600) return Math.floor(diff / 60) + ' 分鐘前';
+  if (diff < 86400) return Math.floor(diff / 3600) + ' 小時前';
+  if (diff < 604800) return Math.floor(diff / 86400) + ' 天前';
+  return date.toLocaleDateString('zh-TW');
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function showToast(message, type = 'info') {
+  const container = document.getElementById('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = 'toast ' + type;
+  toast.innerHTML = `<span>${message}</span>`;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateX(30px)';
+    toast.style.transition = 'all 0.3s';
+    setTimeout(() => toast.remove(), 300);
+  }, 4000);
+}
+
+// ============================================================
+// INITIALIZATION
+// ============================================================
+function init() {
+  loadConfig();
+  loadTransCache();
+
+  if (hasAnyKey()) {
+    fetchAllNews();
+    startAutoRefresh();
+    // Request notification permission on load
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  } else {
+    // Show setup prompt
+    openSettings();
+  }
+
+  updateStatusBar(false);
+
+  // Close modal on overlay click
+  document.getElementById('settingsModal').addEventListener('click', function(e) {
+    if (e.target === this) closeSettings();
+  });
+
+  // Keyboard shortcuts
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeSettings();
+    if (e.key === 'r' && e.ctrlKey) { e.preventDefault(); manualRefresh(); }
+  });
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>

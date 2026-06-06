@@ -8,6 +8,8 @@ import feedparser
 from bs4 import BeautifulSoup
 from deep_translator import GoogleTranslator
 
+import google.generativeai as genai
+
 # ==========================================
 # CONFIGURATION & SECRETS
 # ==========================================
@@ -15,7 +17,11 @@ FINNHUB_KEY = os.environ.get('FINNHUB_KEY', '')
 MARKETAUX_KEY = os.environ.get('MARKETAUX_KEY', '')
 TG_BOT_TOKEN = os.environ.get('TG_BOT_TOKEN', '')
 TG_CHAT_ID = os.environ.get('TG_CHAT_ID', '')
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 SEEN_FILE = 'seen_news.json'
+
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
 
 TW_STOCK_MAP = {
     # 半導體
@@ -113,6 +119,28 @@ def translate_to_zh(text):
     except Exception as e:
         print(f"Translation error: {e}")
         return text
+
+def summarize_with_gemini(headline, summary):
+    if not GEMINI_API_KEY:
+        return summary[:200] + "..." if summary else ""
+    try:
+        model = genai.GenerativeModel("gemini-2.5-flash")
+        prompt = f"""
+        請以繁體中文，用 3 個條列式重點總結以下這則財經新聞。
+        標題：{headline}
+        摘要：{summary}
+        
+        要求：
+        1. 語氣專業精煉，不要有開場白或結語。
+        2. 每個重點控制在 30 字以內。
+        3. 直接輸出「- 重點一\n- 重點二\n- 重點三」格式。
+        """
+        response = model.generate_content(prompt)
+        if response.text:
+            return response.text.strip()
+    except Exception as e:
+        print(f"Gemini summarize error: {e}")
+    return summary[:200] + "..." if summary else ""
 
 def extract_tickers(text):
     tickers = set()
@@ -308,7 +336,12 @@ def send_telegram(item):
         
     stock_str = "\n📊 相關股票：\n" + "\n".join(stock_links) + "\n" if stock_links else ""
     url_str = f"\n📰 新聞連結：{item['url']}" if item['url'] else ""
-    summary_str = f"{item['summary'][:200]}...\n" if item['summary'] else ""
+    
+    if item['summary'] and len(item['summary']) > 50 and item['sentiment'] != 'neutral':
+        gemini_summary = summarize_with_gemini(item['headline'], item['summary'])
+        summary_str = f"✨ <b>AI 總結：</b>\n{gemini_summary}\n"
+    else:
+        summary_str = f"{item['summary'][:200]}...\n" if item['summary'] else ""
     
     message = (
         f"{sent_emoji} {zh_title}"
