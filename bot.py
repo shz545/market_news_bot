@@ -284,7 +284,10 @@ def fetch_rss_feeds():
         try:
             d = feedparser.parse(f['url'])
             for entry in d.entries[:10]:
-                full_text = entry.title + " " + getattr(entry, 'description', '')
+                desc_html = getattr(entry, 'description', '')
+                desc_text = BeautifulSoup(desc_html, "html.parser").get_text(separator=' ') if desc_html else ""
+                
+                full_text = entry.title + " " + desc_text
                 import hashlib
                 item_id = hashlib.md5(entry.title.encode()).hexdigest()
                 
@@ -295,7 +298,7 @@ def fetch_rss_feeds():
                 news.append({
                     'id': item_id,
                     'headline': entry.title,
-                    'summary': '',
+                    'summary': desc_text,
                     'url': entry.link,
                     'datetime': int(time.time()),
                     'tickers': tickers,
