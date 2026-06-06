@@ -334,7 +334,7 @@ def send_telegram(item):
         is_tw = re.match(r'^\d{4}$', t) or t.endswith('.TW') or t.endswith('.TWO')
         code = re.sub(r'\.(TW|TWO)$', '', t) if is_tw else t
         label = TW_STOCK_MAP.get(code, code) if is_tw else t
-        url = f"https://tw.stock.yahoo.com/quote/{code}.TW" if is_tw else f"https://finance.yahoo.com/quote/{t}"
+        url = f"https://tw.stock.yahoo.com/quote/{code}.TW" if is_tw else f"https://tw.stock.yahoo.com/quote/{t}"
         stock_links.append(f"  • <a href='{url}'>{label} ({t})</a>")
         
     stock_str = "\n📊 相關股票：\n" + "\n".join(stock_links) + "\n" if stock_links else ""
@@ -344,7 +344,11 @@ def send_telegram(item):
         gemini_summary = summarize_with_gemini(item['headline'], item['summary'])
         summary_str = f"✨ <b>AI 總結：</b>\n{gemini_summary}\n"
     else:
-        summary_str = f"{item['summary'][:200]}...\n" if item['summary'] else ""
+        raw_summary = item['summary'][:200]
+        if raw_summary and is_english(raw_summary):
+            summary_str = f"{translate_to_zh(raw_summary)}...\n"
+        else:
+            summary_str = f"{raw_summary}...\n" if raw_summary else ""
     
     message = (
         f"{sent_emoji} {zh_title}"
