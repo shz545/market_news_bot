@@ -120,27 +120,36 @@ def translate_to_zh(text):
         print(f"Translation error: {e}")
         return text
 
-def summarize_with_gemini(headline, summary):
+def evaluate_and_summarize_news(headline, summary):
     if not GEMINI_API_KEY:
-        return summary[:200] + "..." if summary else ""
+        return "NO"
     try:
         model = genai.GenerativeModel("gemini-2.5-flash")
         prompt = f"""
-        請以繁體中文，用 3 個條列式重點總結以下這則財經新聞。
+        你是一位嚴格的對沖基金經理人。請判定以下這則財經新聞是否符合以下任一條件：
+        1. 核彈級市場黑天鵝事件（如：聯準會意外升降息、戰爭爆發、重量級企業財報大爆雷）。
+        2. 大盤指數漲跌的關鍵原因分析（例如說明今日美股、台股為何大漲或大跌的核心理由）。
+
         標題：{headline}
         摘要：{summary}
         
         要求：
-        1. 語氣專業精煉，不要有開場白或結語。
-        2. 每個重點控制在 30 字以內。
-        3. 直接輸出「- 重點一\n- 重點二\n- 重點三」格式。
+        - 如果是普通新聞、日常財報、個股小幅波動、無關緊要的分析師評論，請一律判定為「NO」。
+        - 如果符合上述重大條件，請判定為「YES」，並提供 3 個條列式的重點總結。
+        
+        輸出格式嚴格要求：
+        第一行只能是「YES」或「NO」。
+        如果第一行是 YES，則從第二行開始輸出 3 點繁體中文總結，格式為：
+        - 重點一
+        - 重點二
+        - 重點三
         """
         response = model.generate_content(prompt)
         if response.text:
             return response.text.strip()
     except Exception as e:
-        print(f"Gemini summarize error: {e}")
-    return summary[:200] + "..." if summary else ""
+        print(f"Gemini evaluate error: {e}")
+    return "NO"
 
 def extract_tickers(text):
     tickers = set()
@@ -316,8 +325,16 @@ def fetch_rss_feeds():
 def send_telegram(item):
     if not TG_BOT_TOKEN or not TG_CHAT_ID: return
     
-    # Filter out boring neutral news
-    if item['sentiment'] == 'neutral' and not item['important']: return
+    # 交給 AI 守門員判定
+    gemini_result = evaluate_and_summarize_news(item['headline'], item['summary'])
+    
+    if not gemini_result.startswith("YES"):
+        print(f"[{item['source']}] AI rejected: {item['headline']}")
+        return # 放棄發送這則新聞
+        
+    # 擷取 YES 之後的總結內容
+    gemini_summary = gemini_result[3:].strip()
+    summary_str = f"🚨 <b>重大警報 (AI 判定)</b>\n{gemini_summary}\n"
     
     sent_emoji = '🟢 利多' if item['sentiment'] == 'bullish' else '🔴 利空' if item['sentiment'] == 'bearish' else '⚪ 中性'
     
@@ -339,16 +356,6 @@ def send_telegram(item):
         
     stock_str = "\n📊 相關股票：\n" + "\n".join(stock_links) + "\n" if stock_links else ""
     url_str = f"\n📰 新聞連結：{item['url']}" if item['url'] else ""
-    
-    if item['summary'] and len(item['summary']) > 50 and item['sentiment'] != 'neutral':
-        gemini_summary = summarize_with_gemini(item['headline'], item['summary'])
-        summary_str = f"✨ <b>AI 總結：</b>\n{gemini_summary}\n"
-    else:
-        raw_summary = item['summary'][:200]
-        if raw_summary and is_english(raw_summary):
-            summary_str = f"{translate_to_zh(raw_summary)}...\n"
-        else:
-            summary_str = f"{raw_summary}...\n" if raw_summary else ""
     
     message = (
         f"{sent_emoji} {zh_title}"
